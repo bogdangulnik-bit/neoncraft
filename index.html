@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NeonCraft</title>
+<link rel="manifest" href="manifest.json">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;touch-action:none;user-select:none}
+body{overflow:hidden;background:#000;font-family:Arial;color:white}
+canvas{display:block}
+#cross{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:28px;z-index:10;pointer-events:none;text-shadow:0 0 5px black}
+#ui{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;z-index:20}
+.badge{background:rgba(0,0,0,.6);padding:8px 14px;border-radius:20px;font-weight:bold}
+#hotbar{position:fixed;bottom:15px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:20}
+.slot{width:52px;height:52px;border:3px solid rgba(255,255,255,.4);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:26px;background:rgba(0,0,0,.5);cursor:pointer}
+.slot.active{border-color:#00e5ff;background:rgba(0,229,255,.3);box-shadow:0 0 15px #00e5ff}
+#joyBase{position:fixed;width:120px;height:120px;border:2px solid rgba(255,255,255,.4);background:rgba(255,255,255,.08);border-radius:50%;display:none;z-index:20;pointer-events:none}
+#joyStick{position:absolute;width:50px;height:50px;background:rgba(255,255,255,.9);border-radius:50%;left:35px;top:35px}
+#btns{position:fixed;bottom:85px;right:15px;display:flex;flex-direction:column;gap:10px;z-index:20}
+.btn{width:65px;height:65px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid white;font-size:24px;color:white}
+#start{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;text-align:center;padding:20px}
+#start button{padding:16px 35px;font-size:22px;background:#00e5ff;border:none;border-radius:12px;margin-top:20px;font-weight:bold}
+#help{font-size:14px;opacity:.8;margin-top:12px;line-height:1.6}
+</style>
+</head>
+<body>
+<div id="cross">+</div>
+<div id="ui"><div class="badge">🧱 NEONCRAFT | Blokovi: <span id="count">0</span></div><div class="badge" id="modeTxt">⛏️ KOPANJE</div></div>
+<div id="hotbar"></div>
+<div id="joyBase"><div id="joyStick"></div></div>
+<div id="btns"><button class="btn" onclick="jump()">⬆️</button><button class="btn" onclick="toggleMode()">⛏️/🧱</button><button class="btn" onclick="doAction()">🎯</button></div>
+<div id="start"><h1 style="font-size:42px">🧱 NEONCRAFT</h1><p style="margin-top:8px">Tvoj Minecraft - samo tvoj!</p><button onclick="startGame()">IGRAJ ▶️</button><div id="help">Na kompu: WASD + Miš + Klik za kopanje<br>Na mobitelu: Pipni bilo gdje za joystick<br>Gumb 🎯 = Kopaj / Postavi<br>Gumb ⛏️/🧱 = Mijenja kopanje / građenje</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+let scene,camera,renderer,player={x:8,y:5,z:8,vy:0,onGround:false},yaw=0,pitch=0,keys={},blocks=new Map(),selected=0,mode='break',placed=0;
+let types=[
+ {name:'Trava',color:0x3ecf4d,emoji:'🌱'},
+ {name:'Zemlja',color:0x8B5A2B,emoji:'🟫'},
+ {name:'Kamen',color:0x888888,emoji:'🪨'},
+ {name:'Drvo',color:0x6B3A1F,emoji:'🪵'},
+ {name:'Lišće',color:0x1e9e2e,emoji:'🌿'},
+ {name:'Pijesak',color:0xf5e356,emoji:'🏖️'},
+ {name:'Neon',color:0xbf00ff,emoji:'💜'},
+ {name:'Staklo',color:0x00e5ff,emoji:'💎'},
+ {name:'Lava',color:0xff4400,emoji:'🌋'},
+];
+function key(x,y,z){return x+','+y+','+z}
+function buildHotbar(){
+ let hb=document.getElementById('hotbar'); hb.innerHTML='';
+ types.forEach((t,i)=>{
+  let d=document.createElement('div'); d.className='slot'+(i===selected?' active':''); d.textContent=t.emoji; d.onclick=()=>{selected=i;buildHotbar();}; hb.appendChild(d);
+ });
+}
+buildHotbar();
+function startGame(){
+ document.getElementById('start').style.display='none';
+ init();
+ if(innerWidth>700) document.body.requestPointerLock();
+}
+function init(){
+ scene=new THREE.Scene(); scene.background=new THREE.Color(0x87ceeb); scene.fog=new THREE.Fog(0x87ceeb,20,60);
+ camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,100);
+ renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setSize(innerWidth,innerHeight); document.body.appendChild(renderer.domElement);
+ let light=new THREE.AmbientLight(0xffffff,0.8); scene.add(light);
+ let sun=new THREE.DirectionalLight(0xffffff,0.8); sun.position.set(20,30,10); scene.add(sun);
+ // teren
+ for(let x=0;x<24;x++) for(let z=0;z<24;z++){
+  let h=Math.floor(2+Math.sin(x*0.5)*1.5+Math.cos(z*0.4)*1.5+Math.random()*1.5);
+  for(let y=0;y<=h;y++){
+   let t=0; if(y<h-1) t=2; if(y===h) t=0; if(y===h && Math.random()<0.15) t=5;
+   addBlock(x,y,z,t,false);
+  }
+  // drveće
+  if(Math.random()<0.08 && x>2 && x<22 && z>2 && z<22){
+   let th=h+1;
+   for(let i=0;i<3;i++) addBlock(x,th+i,z,3,false);
+   addBlock(x+1,th+2,z,4,false); addBlock(x-1,th+2,z,4,false); addBlock(x,th+2,z+1,4,false); addBlock(x,th+2,z-1,4,false); addBlock(x,th+3,z,4,false);
+  }
+ }
+ animate();
+}
+function addBlock(x,y,z,type,update=true){
+ let geo=new THREE.BoxGeometry(1,1,1);
+ let mat=new THREE.MeshLambertMaterial({color:types[type].color, transparent: type===7, opacity: type===7?0.6:1});
+ let mesh=new THREE.Mesh(geo,mat); mesh.position.set(x+0.5,y+0.5,z+0.5); scene.add(mesh);
+ blocks.set(key(x,y,z),{mesh,type});
+}
+function removeBlock(x,y,z){
+ let b=blocks.get(key(x,y,z)); if(!b) return;
+ scene.remove(b.mesh); blocks.delete(key(x,y,z));
+}
+function getTarget(){
+ let dir=new THREE.Vector3(0,0,-1); dir.applyEuler(new THREE.Euler(pitch,yaw,0));
+ for(let d=0.5;d<6;d+=0.25){
+  let x=Math.floor(camera.position.x+dir.x*d), y=Math.floor(camera.position.y+dir.y*d), z=Math.floor(camera.position.z+dir.z*d);
+  if(blocks.has(key(x,y,z))) return {x,y,z,dir};
+ }
+ return null;
+}
+function doAction(){
+ let t=getTarget(); if(!t) return;
+ if(mode==='break'){ if(!(t.y===0)) removeBlock(t.x,t.y,t.z); }
+ else{
+  let nx=t.x+Math.round(t.dir.x), ny=t.y+Math.round(t.dir.y), nz=t.z+Math.round(t.dir.z);
+  if(!blocks.has(key(nx,ny,nz))){ addBlock(nx,ny,nz,selected); placed++; document.getElementById('count').textContent=placed; }
+ }
+}
+function toggleMode(){ mode=mode==='break'?'build':'break'; document.getElementById('modeTxt').textContent=mode==='break'?'⛏️ KOPANJE':'🧱 GRAĐENJE'; }
+function jump(){ if(player.onGround){ player.vy=0.18; player.onGround=false; } }
+document.addEventListener('mousemove',e=>{ if(document.pointerLockElement){ yaw-=e.movementX*0.003; pitch-=e.movementY*0.003; pitch=Math.max(-1.5,Math.min(1.5,pitch)); }});
+document.addEventListener('click',e=>{ if(document.pointerLockElement && e.target.tagName!=='BUTTON') doAction(); });
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true); addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+addEventListener('keydown',e=>{ if(e.key===' ') jump(); if(e.key==='f') toggleMode(); });
+// joystick - floating kao u Brawl Starsu
+let joy={active:false,id:null,baseX:0,baseY:0,dx:0,dy:0};
+const joyBase=document.getElementById('joyBase'), joyStick=document.getElementById('joyStick');
+addEventListener('touchstart',e=>{
+ if(joy.active) return; let t=e.touches[0];
+ if(t.clientY<80 || t.clientX>innerWidth-90 && t.clientY>innerHeight-200) return;
+ joy.active=true; joy.id=t.identifier; joy.baseX=t.clientX; joy.baseY=t.clientY;
+ joyBase.style.display='block'; joyBase.style.left=(t.clientX-60)+'px'; joyBase.style.top=(t.clientY-60)+'px';
+},{passive:true});
+addEventListener('touchmove',e=>{
+ for(let t of e.touches){ if(t.identifier===joy.id){ let dx=t.clientX-joy.baseX, dy=t.clientY-joy.baseY; let len=Math.hypot(dx,dy)||1; if(len>50){dx=dx/len*50;dy=dy/len*50;} joy.dx=dx/50; joy.dy=dy/50; joyStick.style.left=(35+dx)+'px'; joyStick.style.top=(35+dy)+'px';
+ // gledanje - povlačenje po desnoj strani
+ }}
+},{passive:true});
+addEventListener('touchend',e=>{ for(let t of e.changedTouches){ if(t.identifier===joy.id){ joy.active=false; joy.dx=0; joy.dy=0; joyBase.style.display='none'; }}});
+let lastTouchX=null,lastTouchY=null;
+addEventListener('touchmove',e=>{
+ if(e.touches.length===1 && !joy.active){
+  let t=e.touches[0];
+  if(t.clientX>innerWidth/2){
+   if(lastTouchX!==null){ yaw-=(t.clientX-lastTouchX)*0.005; pitch-=(t.clientY-lastTouchY)*0.005; pitch=Math.max(-1.5,Math.min(1.5,pitch)); }
+   lastTouchX=t.clientX; lastTouchY=t.clientY;
+  }
+ }
+},{passive:true});
+addEventListener('touchend',()=>{lastTouchX=null;lastTouchY=null;});
+function animate(){
+ requestAnimationFrame(animate);
+ if(!camera) return;
+ let speed=0.12; let mx=0,mz=0;
+ if(keys['w']) mz-=1; if(keys['s']) mz+=1; if(keys['a']) mx-=1; if(keys['d']) mx+=1;
+ mx+=joy.dx; mz+=joy.dy;
+ let sin=Math.sin(yaw), cos=Math.cos(yaw);
+ player.x+=(mx*cos - mz*sin)*speed; player.z+=(mx*sin + mz*cos)*speed;
+ player.vy-=0.008; player.y+=player.vy;
+ let groundY=0;
+ for(let y=Math.floor(player.y);y>=0;y--){ if(blocks.has(key(Math.floor(player.x),y,Math.floor(player.z)))){ groundY=y+1; break; } }
+ if(player.y<=groundY+1.6){ player.y=groundY+1.6; player.vy=0; player.onGround=true; }
+ camera.position.set(player.x,player.y+0.6,player.z);
+ camera.rotation.set(pitch,yaw,0,'YXZ');
+ renderer.render(scene,camera);
+}
+</script>
+</body>
+</html>
